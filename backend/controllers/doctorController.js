@@ -10,7 +10,6 @@ const createDoctorProfile = async (req, res) => {
       bio,
       clinicAddress,
       consultationFee,
-      availability,
       languageSpoken,
       teleMedicineEnabled,
     } = req.body;
@@ -47,7 +46,6 @@ const createDoctorProfile = async (req, res) => {
       qualifications,
       clinicAddress,
       consultationFee,
-      availability,
       languageSpoken,
       teleMedicineEnabled,
     });

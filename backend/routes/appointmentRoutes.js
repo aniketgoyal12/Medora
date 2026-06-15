@@ -1,5 +1,6 @@
 import express from "express";
 import {
+  cancelAppointment,
   createAppointment,
   getAllAppointment,
   getAppointmentById,
@@ -60,8 +61,15 @@ router.patch(
 router.patch(
   "/:id",
   auth,
-  authorizeRoles("patient"),
+  authorizeRoles("patient","doctor"),
   updateAppointment
+);
+
+router.patch(
+  "/:id/cancel",
+  auth,
+  authorizeRoles("doctor","patient"),
+  cancelAppointment
 );
 
 

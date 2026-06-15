@@ -29,24 +29,7 @@ const doctorSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    availability: [
-      {
-        day: {
-          type: String,
-          required: true,
-          enum: [
-            "Monday",
-            "Tuesday",
-            "Wednesday",
-            "Thursday",
-            "Friday",
-            "Saturday",
-            "Sunday",
-          ],
-        },
-        slots: [{ startTime: String, endTime: String }],
-      },
-    ],
+
     languageSpoken: [String],
     clinicAddress: {
       type: String,

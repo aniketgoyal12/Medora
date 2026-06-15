@@ -7,6 +7,7 @@ import authRoutes from './routes/authRoutes.js';
 import doctorRoutes from './routes/doctorRoutes.js';
 import patientRoutes from './routes/patientRoutes.js';
 import appoointmentRoutes from './routes/appointmentRoutes.js';
+import availabilityRoutes from './routes/availabilityRoutes.js';
 
 
 const app = express();
@@ -18,6 +19,7 @@ app.use("/api/v1/auth",authRoutes);
 app.use("/api/v1/doctor",doctorRoutes);
 app.use("/api/v1/patient",patientRoutes);
 app.use("/api/v1/appointment",appoointmentRoutes);
+app.use("/api/v1/availability",availabilityRoutes);
 
 
 const PORT = process.env.PORT || 5000;

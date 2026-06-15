@@ -1,4 +1,5 @@
 import Appointment from "../models/Appointment.js";
+import Availability from "../models/Availability.js";
 import mongoose from "mongoose";
 import Doctor from "../models/Doctor.js";
 import Patient from "../models/Patient.js";
@@ -45,7 +46,10 @@ const createAppointment = async (req, res) => {
 
     const appointmentDateObj = new Date(appointmentDate);
 
-    if (appointmentDateObj < new Date()) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (appointmentDateObj < today) {
       return res.status(400).json({
         success: false,
         message: "Appointment date must be in the future",
@@ -72,11 +76,40 @@ const createAppointment = async (req, res) => {
       });
     }
 
+    const day = appointmentDateObj.toLocaleDateString("en-US", {
+      weekday: "long",
+    });
+
+    const availability = await Availability.findOne({
+      doctorId: doctor._id,
+      day,
+    });
+
+    if (!availability) {
+      return res.status(400).json({
+        success: false,
+        message: `Doctor is not available on ${day}`,
+      });
+    }
+
+    const slotExists = availability.slots.some(
+      (slot) =>
+        slot.startTime === timeSlot.startTime &&
+        slot.endTime === timeSlot.endTime,
+    );
+
+    if (!slotExists) {
+      return res.status(400).json({
+        success: false,
+        message: "Selected slot is not available",
+      });
+    }
     const existingAppointment = await Appointment.findOne({
       doctorId,
       appointmentDate,
       "timeSlot.startTime": timeSlot.startTime,
-      status: { $ne: "Cancelled" },
+      "timeSlot.endTime": timeSlot.endTime,
+      status: { $nin: ["cancelled", "rejected"] },
     });
 
     if (existingAppointment) {
@@ -90,7 +123,8 @@ const createAppointment = async (req, res) => {
       patientId: patient._id,
       appointmentDate,
       "timeSlot.startTime": timeSlot.startTime,
-      status: { $ne: "Cancelled" },
+      "timeSlot.endTime": timeSlot.endTime,
+      status: { $nin: ["cancelled", "rejected"] },
     });
 
     if (patientAppointment) {
@@ -161,7 +195,7 @@ const getMyAppointment = async (req, res) => {
     }
     return res.status(200).json({
       success: true,
-      message: appointment,
+      appointments: appointment,
     });
   } catch (err) {
     return res.status(500).json({
@@ -185,14 +219,14 @@ const getAppointmentById = async (req, res) => {
       .populate("patientId")
       .populate("doctorId");
     if (!appointment) {
-      return res.status(400).json({
+      return res.status(404).json({
         success: false,
         message: "Appointment not found",
       });
     }
     return res.status(200).json({
       success: true,
-      message: appointment,
+      appointment: appointment,
     });
   } catch (err) {
     return res.status(500).json({
@@ -253,11 +287,11 @@ const updateAppointmentStatus = async (req, res) => {
     if (!doctor) {
       return res.status(404).json({
         success: false,
-        nessage: "Doctor not found",
+        message: "Doctor not found",
       });
     }
     const appointmentId = req.params.id;
-    if (!mongoose.Types.Object.isValid(appointmentId)) {
+    if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid Appointment Id",
@@ -278,11 +312,20 @@ const updateAppointmentStatus = async (req, res) => {
       });
     }
 
-    const appointment = findOneAndUpdate(
-      { id: appointmentId, doctor: doctor._id },
+    const appointment = await Appointment.findOneAndUpdate(
+      {
+        _id: appointmentId,
+        doctorId: doctor._id,
+      },
       { status },
       { new: true },
     );
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: "Appointment not found",
+      });
+    }
     return res.status(200).json({
       success: true,
       message: "Appointment status updated successfully",
@@ -333,7 +376,7 @@ const updateAppointment = async (req, res) => {
         });
       }
 
-      query.doctor = doctor._id;
+      query.doctorId = doctor._id;
     }
 
     const appointment = await Appointment.findOne(query);
@@ -356,12 +399,42 @@ const updateAppointment = async (req, res) => {
 
     if (appointmentDate) {
       const newDate = new Date(appointmentDate);
+      const today =new Date();
+      today.setHours(0,0,0,0);
 
-      if (newDate < new Date()) {
+      if (newDate < today) {
         return res.status(400).json({
           success: false,
           message: "Appointment date cannot be in the past",
         });
+      }
+      const day = newDate.toLocaleDateString("en-US",{
+        weekday : "long"
+      });
+
+      const availability = await Availability.findOne({
+        doctorId: appointment.doctorId,
+        day,
+      })
+
+      if(!availability){
+        return res.status(400).json({
+          success:false,
+          message:`Doctor is not available on ${day}`
+        })
+      }
+
+      const slotExists = availability.slots.some(
+        (slot) =>
+          slot.startTime === appointment.timeSlot.startTime && 
+          slot.endTime === appointment.timeSlot.endTime
+      );
+
+      if(!slotExists) {
+        return res.status(400).json({
+          success:false,
+          message: "Current slot is not available on selected date"
+        })
       }
 
       updates.appointmentDate = newDate;
@@ -396,6 +469,84 @@ const updateAppointment = async (req, res) => {
     });
   }
 };
+
+const cancelAppointment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if(!mongoose.Types.ObjectId.isValid(id)){
+      return res.status(400).json({
+        success:false,
+        message:"Invalid appointment ID"
+      })
+    }
+
+    let query = { _id:id};
+    
+    if(req.user.role === "patient"){
+      const patient = await Patient.findOne({
+        userId:req.user._id
+      });
+      if(!patient){
+        return res.status(404).json({
+          success:false,
+          message:"Patient not found"
+        })
+      }
+
+      query.patientId = patient._id;
+    }
+
+    if(req.user.role === "doctor"){
+      const doctor = await Doctor.findOne({
+        userId:req.user._id
+      });
+
+      if(!doctor){
+        return res.status(404).json({
+          success:false,
+          message:"Doctor not found"
+        })
+      }
+
+      query.doctorId  = doctor._id;
+    }
+
+    const appointment = await Appointment.findOne(query);
+
+    if(!appointment){
+      return res.status(404).json({
+        success:false,
+        messgae:"Appointment not found"
+      })
+    }
+
+    if(
+      ["cancelled","completed","rejected"].includes(appointment.status)
+    ){
+      return res.status(400).json({
+        success:false,
+        message: `Cannot cancel ${appointment.status} appointment`
+      })
+    }
+
+    appointment.status = "cancelled";
+
+    await appointment.save();
+
+    return res.status(200).json({
+      success:true,
+      message:"Appointment cancelled successfully"
+    })
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
+
 export {
   createAppointment,
   getAllAppointment,
@@ -404,4 +555,5 @@ export {
   getDoctorAppointment,
   updateAppointmentStatus,
   updateAppointment,
+  cancelAppointment
 };
