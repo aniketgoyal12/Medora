@@ -1,7 +1,5 @@
-import jwt from 'jsonwebtoken';
-import dotenv from 'dotenv';
-dotenv.config();
-const SECRET_KEY = process.env.JWT_SECRET;
+import { verifyAccessToken } from '../utils/jwt.js';
+
 
 const auth = (req,res,next) =>{
     const authHeader = req.header("Authorization");
@@ -14,11 +12,15 @@ const auth = (req,res,next) =>{
 
     const token = authHeader.split(" ")[1];
 
+
+    if(!token){
+        return res.status(401).json({
+            success:false,
+            message:"Invalid Authorization Header"
+        })
+    }
     try{
-        const decoded = jwt.verify(
-            token,
-            SECRET_KEY
-        );
+        const decoded = verifyAccessToken(token)
         req.user = decoded;
         next();
     } catch(err){

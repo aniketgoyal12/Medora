@@ -109,7 +109,7 @@ const createAppointment = async (req, res) => {
       appointmentDate,
       "timeSlot.startTime": timeSlot.startTime,
       "timeSlot.endTime": timeSlot.endTime,
-      status: { $nin: ["cancelled", "rejected"] },
+      status: { $nin: ["Cancelled", "Rejected"] },
     });
 
     if (existingAppointment) {
@@ -124,7 +124,7 @@ const createAppointment = async (req, res) => {
       appointmentDate,
       "timeSlot.startTime": timeSlot.startTime,
       "timeSlot.endTime": timeSlot.endTime,
-      status: { $nin: ["cancelled", "rejected"] },
+      status: { $nin: ["Cancelled", "Rejected"] },
     });
 
     if (patientAppointment) {
@@ -224,6 +224,17 @@ const getAppointmentById = async (req, res) => {
         message: "Appointment not found",
       });
     }
+
+    if (req.user.role === "doctor") {
+      const doctor = await Doctor.findOne({ userId: req.user._id });
+      if (!doctor || appointment.doctorId._id.toString() !== doctor._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized access to this appointment",
+        });
+      }
+    }
+
     return res.status(200).json({
       success: true,
       appointment: appointment,
@@ -282,7 +293,7 @@ const getDoctorAppointment = async (req, res) => {
 
 const updateAppointmentStatus = async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, doctorNotes } = req.body;
     const doctor = await Doctor.findOne({ userId: req.user._id });
     if (!doctor) {
       return res.status(404).json({
@@ -298,11 +309,13 @@ const updateAppointmentStatus = async (req, res) => {
       });
     }
     const allowedStatuses = [
-      "pending",
-      "confirmed",
-      "completed",
-      "cancelled",
-      "rejected",
+      "Pending",
+      "Confirmed",
+      "Completed",
+      "Cancelled",
+      "Rejected",
+      "Rescheduled",
+      "No-Show",
     ];
 
     if (!allowedStatuses.includes(status)) {
@@ -312,12 +325,17 @@ const updateAppointmentStatus = async (req, res) => {
       });
     }
 
+    const updateFields = { status };
+    if (status === "Completed" && doctorNotes) {
+      updateFields.doctorNotes = doctorNotes;
+    }
+
     const appointment = await Appointment.findOneAndUpdate(
       {
         _id: appointmentId,
         doctorId: doctor._id,
       },
-      { status },
+      updateFields,
       { new: true },
     );
     if (!appointment) {
@@ -329,7 +347,7 @@ const updateAppointmentStatus = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Appointment status updated successfully",
-      appointment: appointment,
+      data: appointment,
     });
   } catch (err) {
     return res.status(500).json({
@@ -388,7 +406,7 @@ const updateAppointment = async (req, res) => {
       });
     }
 
-    if (["completed", "cancelled", "rejected"].includes(appointment.status)) {
+    if (["Completed", "Cancelled", "Rejected"].includes(appointment.status)) {
       return res.status(400).json({
         success: false,
         message: `Cannot update a ${appointment.status} appointment`,
@@ -399,8 +417,9 @@ const updateAppointment = async (req, res) => {
 
     if (appointmentDate) {
       const newDate = new Date(appointmentDate);
-      const today =new Date();
-      today.setHours(0,0,0,0);
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
       if (newDate < today) {
         return res.status(400).json({
@@ -408,33 +427,51 @@ const updateAppointment = async (req, res) => {
           message: "Appointment date cannot be in the past",
         });
       }
-      const day = newDate.toLocaleDateString("en-US",{
-        weekday : "long"
+
+      const day = newDate.toLocaleDateString("en-US", {
+        weekday: "long",
       });
 
       const availability = await Availability.findOne({
         doctorId: appointment.doctorId,
         day,
-      })
+      });
 
-      if(!availability){
+      if (!availability) {
         return res.status(400).json({
-          success:false,
-          message:`Doctor is not available on ${day}`
-        })
+          success: false,
+          message: `Doctor is not available on ${day}`,
+        });
       }
 
       const slotExists = availability.slots.some(
         (slot) =>
-          slot.startTime === appointment.timeSlot.startTime && 
-          slot.endTime === appointment.timeSlot.endTime
+          slot.startTime === appointment.timeSlot.startTime &&
+          slot.endTime === appointment.timeSlot.endTime,
       );
 
-      if(!slotExists) {
+      if (!slotExists) {
         return res.status(400).json({
-          success:false,
-          message: "Current slot is not available on selected date"
-        })
+          success: false,
+          message: "Current slot is not available on selected date",
+        });
+      }
+
+      // Check if the same slot is already booked on the new date
+      const conflictingAppointment = await Appointment.findOne({
+        doctorId: appointment.doctorId,
+        appointmentDate: newDate,
+        "timeSlot.startTime": appointment.timeSlot.startTime,
+        "timeSlot.endTime": appointment.timeSlot.endTime,
+        status: { $nin: ["Cancelled", "Rejected"] },
+        _id: { $ne: appointment._id },
+      });
+
+      if (conflictingAppointment) {
+        return res.status(400).json({
+          success: false,
+          message: "Slot already booked on this date",
+        });
       }
 
       updates.appointmentDate = newDate;
@@ -473,76 +510,144 @@ const updateAppointment = async (req, res) => {
 const cancelAppointment = async (req, res) => {
   try {
     const { id } = req.params;
+    const { cancellationReason } = req.body;
 
-    if(!mongoose.Types.ObjectId.isValid(id)){
+    if (!cancellationReason) {
       return res.status(400).json({
-        success:false,
-        message:"Invalid appointment ID"
-      })
+        success: false,
+        message: "Cancellation reason is required",
+      });
     }
 
-    let query = { _id:id};
-    
-    if(req.user.role === "patient"){
-      const patient = await Patient.findOne({
-        userId:req.user._id
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid appointment ID",
       });
-      if(!patient){
+    }
+
+    let query = { _id: id };
+
+    if (req.user.role === "patient") {
+      const patient = await Patient.findOne({
+        userId: req.user._id,
+      });
+      if (!patient) {
         return res.status(404).json({
-          success:false,
-          message:"Patient not found"
-        })
+          success: false,
+          message: "Patient not found",
+        });
       }
 
       query.patientId = patient._id;
     }
 
-    if(req.user.role === "doctor"){
+    if (req.user.role === "doctor") {
       const doctor = await Doctor.findOne({
-        userId:req.user._id
+        userId: req.user._id,
       });
 
-      if(!doctor){
+      if (!doctor) {
         return res.status(404).json({
-          success:false,
-          message:"Doctor not found"
-        })
+          success: false,
+          message: "Doctor not found",
+        });
       }
 
-      query.doctorId  = doctor._id;
+      query.doctorId = doctor._id;
     }
 
     const appointment = await Appointment.findOne(query);
 
-    if(!appointment){
+    if (!appointment) {
       return res.status(404).json({
-        success:false,
-        messgae:"Appointment not found"
-      })
+        success: false,
+        message: "Appointment not found",
+      });
     }
 
-    if(
-      ["cancelled","completed","rejected"].includes(appointment.status)
-    ){
+    if (["Cancelled", "Completed", "Rejected"].includes(appointment.status)) {
       return res.status(400).json({
-        success:false,
-        message: `Cannot cancel ${appointment.status} appointment`
-      })
+        success: false,
+        message: `Cannot cancel ${appointment.status} appointment`,
+      });
     }
 
-    appointment.status = "cancelled";
+    appointment.status = "Cancelled";
+    appointment.cancellationReason = cancellationReason;
 
     await appointment.save();
 
     return res.status(200).json({
-      success:true,
-      message:"Appointment cancelled successfully"
-    })
-
+      success: true,
+      message: "Appointment cancelled successfully",
+      data: appointment,
+    });
   } catch (err) {
     return res.status(500).json({
       success: false,
-      message: err.message
+      message: err.message,
+    });
+  }
+};
+
+const addDoctorNotes = async (req, res) => {
+  try {
+    const { doctorNotes } = req.body;
+    if (!doctorNotes) {
+      return res.status(400).json({
+        success: false,
+        message: "Doctor notes are required",
+      });
+    }
+
+    const doctor = await Doctor.findOne({ userId: req.user._id });
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: "Doctor profile not found",
+      });
+    }
+
+    const appointmentId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Appointment Id",
+      });
+    }
+
+    const appointment = await Appointment.findOne({
+      _id: appointmentId,
+      doctorId: doctor._id,
+    });
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: "Appointment not found",
+      });
+    }
+
+    if (!["Confirmed", "Completed"].includes(appointment.status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Appointment must be Confirmed or Completed to add notes",
+      });
+    }
+
+    appointment.doctorNotes = doctorNotes;
+    await appointment.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Doctor notes added successfully",
+      data: appointment,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
     });
   }
 };
@@ -555,5 +660,6 @@ export {
   getDoctorAppointment,
   updateAppointmentStatus,
   updateAppointment,
-  cancelAppointment
+  cancelAppointment,
+  addDoctorNotes,
 };

@@ -5,7 +5,9 @@ import {
   getDoctorById,
   getMyDoctorProfile,
   updateMyDoctorProfile,
+  uploadDoctorProfileImage
 } from "../controllers/doctorController.js";
+import {imageUpload} from "../middleware/uploadMiddleware.js";
 
 import { auth, authorizeRoles } from "../middleware/authMiddleware.js";
 
@@ -25,5 +27,14 @@ router.put(
   authorizeRoles("doctor"),
   updateMyDoctorProfile,
 );
+
+router.patch(
+  "/profile-image",
+  auth,
+  authorizeRoles("doctor"),
+  imageUpload.single("profileImage"),
+  uploadDoctorProfileImage
+);
+
 
 export default router;

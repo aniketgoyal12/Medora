@@ -1,15 +1,17 @@
 import express from "express";
-import {createMedicalRecord, getMyMedicalRecord, getMedicalRecordById, getPatientMedicalRecords, updateMedicalRecords} from "../controllers/medicalRecordController.js";
+import {createMedicalRecord, getMyMedicalRecord, getMedicalRecordById, getPatientMedicalRecords, updateMedicalRecord, deleteMedicalRecord} from "../controllers/medicalRecordController.js";
 import {auth, authorizeRoles} from "../middleware/authMiddleware.js";
+import { documentUpload } from "../middleware/uploadMiddleware.js";
 
 const router = express.Router();
 
-router.post("/create",
-    auth,
-    authorizeRoles("doctor"),
-    createMedicalRecord
+router.post(
+  "/",
+  auth,
+  authorizeRoles("doctor"),
+  documentUpload.single("document"),
+  createMedicalRecord
 );
-
 
 router.get("/me",
     auth,
@@ -31,11 +33,18 @@ router.get(
   getPatientMedicalRecords
 );
 
-router.put(
+router.patch(
   "/:id",
   auth,
   authorizeRoles("doctor"),
-  updateMedicalRecords
+  documentUpload.single("document"),
+  updateMedicalRecord
+);
+
+router.delete("/:id",
+  auth,
+  authorizeRoles("doctor"),
+  deleteMedicalRecord
 );
 
 export default router;

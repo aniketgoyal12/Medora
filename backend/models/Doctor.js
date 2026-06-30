@@ -7,9 +7,9 @@ const doctorSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    bio:{
-      type:String,
-      required:true
+    bio: {
+      type: String,
+      required: true,
     },
     specialization: {
       type: String,
@@ -40,6 +40,25 @@ const doctorSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    profileImage: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    ratingAverage: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+    totalRatings: {
+      type: Number,
+      default: 0,
+    },
+    publicId:{
+      type:String,
+      trim: true,
+    }
   },
   { timestamps: true },
 );

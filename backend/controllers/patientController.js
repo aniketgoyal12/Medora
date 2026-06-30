@@ -76,6 +76,13 @@ const getMyPatientProfile = async (req, res) => {
 
 const getPatientById = async (req, res) => {
   try {
+    if (req.user.role === "patient" && req.params.id !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized access to another patient's data",
+      });
+    }
+
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
         success: false,

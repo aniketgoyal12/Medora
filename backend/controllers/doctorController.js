@@ -1,4 +1,6 @@
 import Doctor from "../models/Doctor.js";
+import uploadToCloudinary from "../utils/uploadToCloudinary.js";
+import cloudinary from "../config/cloudinary.js";
 import mongoose from "mongoose";
 
 const createDoctorProfile = async (req, res) => {
@@ -32,7 +34,7 @@ const createDoctorProfile = async (req, res) => {
       userId: req.user._id,
     });
     if (existingDoctor) {
-      return res.staus(400).json({
+      return res.status(400).json({
         success: false,
         message: "Doctor Already Exists",
       });
@@ -140,7 +142,7 @@ const updateMyDoctorProfile = async (req, res) => {
       specialization: req.body.specialization,
       experience: req.body.experience,
       consultationFee: req.body.consultationFee,
-      qualification: req.body.qualification,
+      qualifications: req.body.qualifications,
       bio: req.body.bio,
     };
 
@@ -175,7 +177,7 @@ const updateMyDoctorProfile = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Doctor profile updated successfully",
-      doctor:doctor,
+      doctor: doctor,
     });
   } catch (err) {
     return res.status(500).json({
@@ -186,10 +188,66 @@ const updateMyDoctorProfile = async (req, res) => {
   }
 };
 
+const uploadDoctorProfileImage = async (req, res) => {
+  try {
+    const image = req.file;
+
+    if (!image) {
+      return res.status(400).json({
+        success: false,
+        message: "Image is required",
+      });
+    }
+
+    const doctor = await Doctor.findOne({ userId: req.user._id });
+
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: "Doctor not found",
+      });
+    }
+
+    const uploadResult = await uploadToCloudinary(image.path, "doctor-profile");
+
+    const oldPublicId = doctor.publicId;
+
+    doctor.profileImage = uploadResult.secure_url;
+    doctor.publicId = uploadResult.public_id;
+
+    await doctor.save();
+
+    if (oldPublicId) {
+      try {
+        await cloudinary.uploader.destroy(oldPublicId);
+      } catch (deleteError) {
+        console.error(
+          "Failed to delete old profile image:",
+          deleteError.message
+        );
+      }
+    }
+
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile picture added successfully",
+      profileimage: doctor.profileImage,
+      doctor: doctor,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
 export {
   createDoctorProfile,
   getAllDoctors,
   getDoctorById,
   getMyDoctorProfile,
   updateMyDoctorProfile,
+  uploadDoctorProfileImage
 };

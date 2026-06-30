@@ -44,8 +44,15 @@ const medicalRecordSchema = new mongoose.Schema(
       required: true,
     },
 
-    fileUrl: {
+    documentUrl: {
       type: String,
+      required: true,
+      trim: true,
+    },
+
+    publicId: {
+      type: String,
+      required: true,
       trim: true,
     },
   },

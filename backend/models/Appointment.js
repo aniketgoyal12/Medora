@@ -38,6 +38,7 @@ const appointmentSchema = new mongoose.Schema(
         "Completed",
         "Cancelled",
         "Rescheduled",
+        "Rejected",
         "No-Show",
       ],
       default: "Pending",
@@ -64,9 +65,10 @@ const appointmentSchema = new mongoose.Schema(
     doctorNotes :{
       type:String,
       trim:true
-    },prescription :{
-      type:String,
-      trim:true
+    },
+    prescription :{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Prescription"
     },
   },
   { timestamps: true }

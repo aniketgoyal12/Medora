@@ -80,12 +80,17 @@ const createFeedback = async (req, res) => {
       doctorId: appointment.doctorId,
     });
 
-    const averageRating =
-      allFeedbacks.reduce((sum, item) => sum + item.rating, 0) /
-      allFeedbacks.length;
+    const totalRatings = allFeedbacks.length;
+    let ratingAverage = 0;
+    if (totalRatings > 0) {
+      const sum = allFeedbacks.reduce((sum, item) => sum + item.rating, 0);
+      ratingAverage = sum / totalRatings;
+      ratingAverage = Math.round(ratingAverage * 10) / 10;
+    }
 
     await Doctor.findByIdAndUpdate(appointment.doctorId, {
-      ratingAverage: Number(averageRating.toFixed(1)),
+      ratingAverage,
+      totalRatings,
     });
 
     return res.status(201).json({
@@ -101,7 +106,7 @@ const createFeedback = async (req, res) => {
   }
 };
 
-const getDoctorFeedback = async (req, res) => {
+const getDoctorFeedbacks = async (req, res) => {
   try {
     const { doctorId } = req.params;
 
@@ -194,14 +199,17 @@ const deleteDoctorFeedback = async (req, res) => {
       doctorId,
     });
 
-    const averageRating =
-      remainingFeedbacks.length === 0
-        ? 0
-        : remainingFeedbacks.reduce((sum, item) => sum + item.rating, 0) /
-          remainingFeedbacks.length;
+    const totalRatings = remainingFeedbacks.length;
+    let ratingAverage = 0;
+    if (totalRatings > 0) {
+      const sum = remainingFeedbacks.reduce((sum, item) => sum + item.rating, 0);
+      ratingAverage = sum / totalRatings;
+      ratingAverage = Math.round(ratingAverage * 10) / 10;
+    }
 
     await Doctor.findByIdAndUpdate(doctorId, {
-      ratingAverage: Number(averageRating.toFixed(1)),
+      ratingAverage,
+      totalRatings,
     });
 
     return res.status(200).json({
@@ -216,4 +224,4 @@ const deleteDoctorFeedback = async (req, res) => {
   }
 };
 
-export { createFeedback, gerDoctorFeedback, deleteDoctorFeedback };
+export { createFeedback, getDoctorFeedbacks, deleteDoctorFeedback };

@@ -8,6 +8,7 @@ import {
   getMyAppointment,
   updateAppointment,
   updateAppointmentStatus,
+  addDoctorNotes,
 } from "../controllers/appointmentController.js";
 
 import {
@@ -56,6 +57,13 @@ router.patch(
   auth,
   authorizeRoles("doctor"),
   updateAppointmentStatus
+);
+
+router.patch(
+  "/:id/notes",
+  auth,
+  authorizeRoles("doctor"),
+  addDoctorNotes
 );
 
 router.patch(

@@ -1,19 +1,25 @@
 import Doctor from "../models/Doctor.js";
-import MedicalRecord from "../models/medicalRecords.js";
+import MedicalRecord from "../models/MedicalRecord.js";
 import Patient from "../models/Patient.js";
 import Appointment from "../models/Appointment.js";
 import mongoose from "mongoose";
+import uploadToCloudinary from "../utils/uploadToCloudinary.js";
+import cloudinary from "../config/cloudinary.js";
 
 const createMedicalRecord = async (req, res) => {
   try {
-    const {
-      patientId,
-      appointmentId,
-      title,
-      description,
-      recordType,
-      fileUrl,
-    } = req.body;
+    const { patientId, appointmentId, title, description, recordType } =
+      req.body;
+
+    const document = req.file;
+
+    if (!document) {
+      return res.status(400).json({
+        success: false,
+        message: "Medical document is required",
+      });
+    }
+
     if (!patientId || !title || !recordType) {
       return res.status(400).json({
         success: false,
@@ -81,6 +87,11 @@ const createMedicalRecord = async (req, res) => {
       }
     }
 
+    const uploadResult = await uploadToCloudinary(
+      document.path,
+      "medical-records",
+    );
+
     const medicalRecord = await MedicalRecord.create({
       patientId,
       doctorId: doctor._id,
@@ -88,11 +99,12 @@ const createMedicalRecord = async (req, res) => {
       title,
       description,
       recordType,
-      fileUrl,
+      documentUrl: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
     });
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: "Medical Record created",
+      message: "Medical Record created successfully",
       medicalRecord: medicalRecord,
     });
   } catch (err) {
@@ -105,7 +117,7 @@ const createMedicalRecord = async (req, res) => {
 
 const getMyMedicalRecord = async (req, res) => {
   try {
-    const patient = await Patiend.findOne({ userId: req.user._id });
+    const patient = await Patient.findOne({ userId: req.user._id });
 
     if (!patient) {
       return res.status(404).json({
@@ -201,15 +213,17 @@ const getPatientMedicalRecords = async (req, res) => {
       });
     }
 
-    const doctor = await Doctor.findOne({
-      userId: req.user._id,
-    });
-
-    if (!doctor) {
-      return res.status(404).json({
-        success: false,
-        message: "Doctor not found",
+    if (req.user.role === "doctor") {
+      const doctor = await Doctor.findOne({
+        userId: req.user._id,
       });
+
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          message: "Doctor not found",
+        });
+      }
     }
 
     const patient = await Patient.findById(patientId);
@@ -238,18 +252,20 @@ const getPatientMedicalRecords = async (req, res) => {
   }
 };
 
-const updateMedicalRecords = async (req, res) => {
+const updateMedicalRecord = async (req, res) => {
   try {
     const recordId = req.params.id;
 
-    const { title, description, recordType, fileUrl } = req.body;
+    const { title, description, recordType } = req.body;
     if (!mongoose.Types.ObjectId.isValid(recordId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid Record ID",
       });
     }
-    if (!title && !description && !recordType && !fileUrl) {
+
+    const document = req.file;
+    if (!title && !description && !recordType && !document) {
       return res.status(400).json({
         success: false,
         message: "At least one field is required for update",
@@ -281,7 +297,6 @@ const updateMedicalRecords = async (req, res) => {
       });
     }
 
-
     if (title) {
       medicalRecord.title = title;
     }
@@ -294,11 +309,31 @@ const updateMedicalRecords = async (req, res) => {
       medicalRecord.recordType = recordType;
     }
 
-    if (fileUrl) {
-      medicalRecord.fileUrl = fileUrl;
-    }
+    let oldPublicId = null;
 
+    if (document) {
+      const uploadResult = await uploadToCloudinary(
+        document.path,
+        "medical-records",
+      );
+
+      oldPublicId = medicalRecord.publicId;
+
+      medicalRecord.documentUrl = uploadResult.secure_url;
+      medicalRecord.publicId = uploadResult.public_id;
+    }
     await medicalRecord.save();
+
+    if (oldPublicId) {
+      try {
+        await cloudinary.uploader.destroy(oldPublicId);
+      } catch (deleteError) {
+        console.error(
+          "Failed to delete old medical record:",
+          deleteError.message,
+        );
+      }
+    }
 
     return res.status(200).json({
       success: true,
@@ -313,10 +348,75 @@ const updateMedicalRecords = async (req, res) => {
   }
 };
 
+const deleteMedicalRecord = async (req, res) => {
+  try {
+    const recordId = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(recordId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Record ID",
+      });
+    }
+
+    const medicalRecord = await MedicalRecord.findById(recordId);
+
+    if (!medicalRecord) {
+      return res.status(404).json({
+        success: false,
+        message: "Medical record not found",
+      });
+    }
+
+    const doctor = await Doctor.findOne({
+      userId: req.user._id,
+    });
+
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: "Doctor not found",
+      });
+    }
+
+    if (medicalRecord.doctorId.toString() !== doctor._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+    }
+
+    // Delete document from Cloudinary
+    if (medicalRecord.publicId) {
+      try {
+        await cloudinary.uploader.destroy(medicalRecord.publicId);
+      } catch (deleteError) {
+        console.error(
+          "Failed to delete medical record document:",
+          deleteError.message
+        );
+      }
+    }
+
+    await MedicalRecord.findByIdAndDelete(recordId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Medical record deleted successfully",
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
 export {
   createMedicalRecord,
   getMyMedicalRecord,
   getMedicalRecordById,
   getPatientMedicalRecords,
-  updateMedicalRecords,
+  updateMedicalRecord,
+  deleteMedicalRecord
 };

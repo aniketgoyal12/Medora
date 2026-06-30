@@ -59,6 +59,13 @@ const prescriptionSchema = new mongoose.Schema(
         },
       },
     ],
+    attachmentUrl: {
+      type: String,
+      default: "",
+    },
+    publicId: {
+      type: String,
+    },
   },
   { timestamps: true },
 );
